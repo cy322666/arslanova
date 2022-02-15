@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Getcourse\Lead;
 use App\Models\Getcourse\Viewer;
+use App\Services\amoCRM\Helpers\Contacts;
+use App\Services\amoCRM\Helpers\Leads;
+use App\Services\amoCRM\Helpers\Notes;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -13,7 +16,6 @@ class GetcourseController extends Controller
     //43578895 регистрация на веб
     //45360766 заявка на подарок
     //45360769 заявка на курс
-    //45673804 холодные
     //46180171 0 - 10
     //46180174 10 - 30
     //46180177 30 - 60
@@ -22,35 +24,86 @@ class GetcourseController extends Controller
     //hook заявки с формы регистрации или кнопки на вебинаре
     public function forms(Request $request)
     {
-        $lead = Lead::create([
+        $user = Lead::create([
             'name'  => $request->input('name'),
             'email' => $request->input('email'),
             'phone' => $request->input('phone'),
             'state' => $request->input('state'),
         ]);
 
-        switch ($lead->state) {
+        try {
+            $client = (new \App\Services\amoCRM\Client())->init([
+                'domain'        => env('AMOCRM_SUBDOMAIN'),
+                'client_id'     => env('AMOCRM_CLIENT_ID'),
+                'client_secret' => env('AMOCRM_CLIENT_SECRET'),
+                'redirect_uri'  => env('AMOCRM_REDIRECT_URI'),
+                'code'          => env('AMOCRM_REDIRECT_CODE'),
+            ]);
 
-            case 'Заказ ГК' :
-                $status_id = 45360769;
-                break;
-            case 'Заявка на подарок' :
-                $status_id = 45360766;
-                break;
-            case 'Регистрация' :
-                $status_id = 43578895;
-                break;
-            default :
-                $status_id = 0;
+            $status_id = match ($user->state) {
+                'Заказ ГК'          => 45360769,
+                'Заявка на подарок' => 45360766,
+                default             => 43578895,
+            };
+
+            $contact = Contacts::search($user->phone, $user->email, $client);
+
+            if($contact == null)
+                $contact = Contacts::create($client, [
+                    'phone' => $user->phone,
+                    'email' => $user->email,
+                ]);
+
+            $leads = Leads::searchActiveLeads($contact, $client);
+
+            if($leads == null) {
+
+                $lead = Leads::create($contact, $client, [
+                    'status_id' => $status_id,
+                ]);
+            } else {
+
+                foreach ($leads as $lead) {
+                    //45360766 заявка на подарок
+                    //45360769 заявка на курс
+                    if ($lead->status_id != 45360766 ||
+                        $lead->status_id != 45360769) {
+
+                        $lead = $client->service->leads()->find($lead->id);
+                        $lead->status_id = $status_id;
+                        $lead->save();
+
+                        break;
+                    }
+                }
+                $lead = Leads::create($contact, $client, [
+                    'status_id' => $status_id,
+                ]);
+            }
+
+            $lead->attachTags([$user->state]);
+            $lead->save();
+
+            $note = $client->service->notes()->create();
+
+            $note->note_type = 4;
+            $note->text = Notes::formatGetcourseLead($user);
+            $note->element_type = 2;
+            $note->element_id = $lead->id;
+            $note->save();
+
+            $user->lead_id = $lead->id;
+            $user->contact_id = $contact->id;
+            $user->status = 'ok';
+            $user->save();
+
+        } catch (\Exception $exception) {
+
+            $user->status = $exception->getMessage();
+            $user->save();
         }
-        /*
-         * в зависимости от state проделываем манипуляции
-         * заявки на курсы/подарки выше, чем обычные и присутствие на вебе
-         */
-
     }
 
-    //https://hub.blackclever.ru/arslanova/public/api/getcourse/webinars/hook?name={object.first_name}&email={object.email}&phone={object.phone}
     //hook нахождения на вебинаре
     public function hook(Request $request)
     {
@@ -69,27 +122,97 @@ class GetcourseController extends Controller
                 'name'  => $request->input('name'),
                 'email' => $request->input('email'),
                 'phone' => $request->input('phone'),
+                'status'=> 'wait',
+                'time'  => 5,
             ]);
         }
     }
 
+    //крон 1 раз в 30 мин
     public function send()
     {
-        //TODO тег автовеб
         $webinar = Viewer::where('webinar_date', Carbon::now()->format('Y-m-d'))
             ->where('status', '!=', 'ok')
             ->where('created_at', '<', Carbon::now()->subHour()->format('Y-m-d H:i:s'))
-            ->latest();//TODO ток последний
+            ->first();
 
         if($webinar) {
+
+            $client = (new \App\Services\amoCRM\Client())->init([
+                'domain'        => env('AMOCRM_SUBDOMAIN'),
+                'client_id'     => env('AMOCRM_CLIENT_ID'),
+                'client_secret' => env('AMOCRM_CLIENT_SECRET'),
+                'redirect_uri'  => env('AMOCRM_REDIRECT_URI'),
+                'code'          => env('AMOCRM_REDIRECT_CODE'),
+            ]);
 
             $viewers = Viewer::query()
                 ->where('webinar_date', Carbon::now()->format('Y-m-d'))
                 ->where('status', '!=', 'ok')
-                ->groupBy('phone')
+                ->limit(30)
                 ->get();
 
-            dd($viewers);
+            foreach ($viewers as $viewer) {
+
+                try {
+                    $contact = Contacts::search($viewer->phone, $viewer->email, $client);
+
+                    if($contact == null)
+                        $contact = Contacts::create($client, [
+                            'phone' => $viewer->phone,
+                            'email' => $viewer->email,
+                        ]);
+
+                    $status_id = Viewer::getStatusId($viewer->time);
+
+                    $leads = Leads::searchActiveLeads($contact, $client);
+
+                    if($leads == null) {
+
+                        $lead = Leads::create($contact, $client, [
+                            'status_id' => $status_id,
+                        ]);
+                    } else {
+
+                        foreach ($leads as $lead) {
+                            //45360766 заявка на подарок
+                            //45360769 заявка на курс
+                            if ($lead->status_id != 45360766 ||
+                                $lead->status_id != 45360769) {
+
+                                $lead = $client->service->leads()->find($lead->id);
+                                $lead->status_id = $status_id;
+                                $lead->save();
+
+                                break;
+                            }
+                        }
+                        $lead = Leads::create($contact, $client, [
+                            'status_id' => $status_id,
+                        ]);
+                    }
+
+                    $lead->attachTags([Viewer::getTag($viewer->time), 'автовеб']);
+                    $lead->save();
+
+                    $note = $client->service->notes()->create();
+                    $note->note_type = 4;
+                    $note->text = Notes::formatGetcourseText($viewer);
+                    $note->element_type = 2;
+                    $note->element_id = $lead->id;
+                    $note->save();
+
+                    $viewer->lead_id = $lead->id;
+                    $viewer->contact_id = $contact->id;
+                    $viewer->status = 'ok';
+                    $viewer->save();
+
+                } catch (\Exception $exception) {
+
+                    $viewer->status = $exception->getMessage();
+                    $viewer->save();
+                }
+            }
         }
     }
 }

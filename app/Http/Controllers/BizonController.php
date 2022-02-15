@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Bizon\Viewer;
 use App\Models\Bizon\Webinar;
 use App\Services\amoCRM\Helpers\Contacts;
 use App\Services\amoCRM\Helpers\Leads;
+use App\Services\amoCRM\Helpers\Notes;
 use App\Services\Bizon365\Client;
 use Carbon\Carbon;
 use Exception;
@@ -121,22 +123,44 @@ class BizonController extends Controller
                             'email' => $viewer->email,
                         ]);
 
-                    $lead = Leads::search($contact, $client, '');//TODO pipeline
+                    $leads = Leads::searchActiveLeads($contact, $client);
 
-                    $type_status = 'status_id_'.$viewer->type;//TODO gettype
+                    $status_id = \App\Models\Getcourse\Viewer::getStatusId($viewer->time);
 
-                    $type_tag = '';//TODO gettag
+                    if($leads == null) {
 
-                    if($lead == null)
                         $lead = Leads::create($contact, $client, [
-                            'status_id' => $type_status,
+                            'status_id' => $status_id,
                         ]);
-                    //$lead = Leads::update($lead, $client, $setting, $viewer);
+                    } else {
 
-                    $lead->attachTags([$type_tag, 'живойвеб']);
+                        foreach ($leads as $lead) {
+                            //45360766 заявка на подарок
+                            //45360769 заявка на курс
+                            if ($lead->status_id != 45360766 ||
+                                $lead->status_id != 45360769) {
+
+                                $lead = $client->service->leads()->find($lead->id);
+                                $lead->status_id = $status_id;
+                                $lead->save();
+
+                                break;
+                            }
+                        }
+                        $lead = Leads::create($contact, $client, [
+                            'status_id' => $status_id,
+                        ]);
+                    }
+
+                    $lead->attachTags([\App\Models\Getcourse\Viewer::getTag($viewer->time), 'живойвеб']);
                     $lead->save();
 
-                    //TODO add note
+                    $note = $client->service->notes()->create();
+                    $note->note_type = 4;
+                    $note->text = Notes::formatBizonText($webinar, $viewer);
+                    $note->element_type = 2;
+                    $note->element_id = $lead->id;
+                    $note->save();
 
                     $viewer->lead_id = $lead->id;
                     $viewer->contact_id = $contact->id;

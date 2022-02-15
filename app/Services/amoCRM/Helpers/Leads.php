@@ -25,6 +25,23 @@ abstract class Leads
         return null;
     }
 
+    public static function searchActiveLeads($contact, $pipeline_id): ?array
+    {
+        if($contact->leads) {
+
+            foreach ($contact->leads as $lead) {
+
+                if ($lead->status_id != 143 &&
+                    $lead->status_id != 142 &&
+                    $lead->pipeline_id == $pipeline_id) {
+
+                    $array_leads[] = $lead;
+                }
+            }
+        }
+        return $array_leads ?? null;
+    }
+
     public static function create($contact, Client $client, array $values)
     {
         $lead = $client->service

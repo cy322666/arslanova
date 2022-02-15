@@ -8,4 +8,13 @@ use Illuminate\Database\Eloquent\Model;
 class Lead extends Model
 {
     use HasFactory;
+
+    protected $fillable = [
+        'name',
+        'email',
+        'phone',
+        'state',
+    ];
+
+    protected $table = 'getcourse_leads';
 }
