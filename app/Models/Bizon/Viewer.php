@@ -16,6 +16,7 @@ class Viewer extends Model
         'phone'    ,
         'webinarId',
         'view'     ,
+        'time',
         'viewTill' ,
         'email'    ,
         'username' ,
@@ -42,6 +43,7 @@ class Viewer extends Model
         'lead_id',
         'contact_id',
         'status',
+        'webinar_id',
     ];
 
 }

@@ -21,7 +21,7 @@ Route::controller(GetcourseController::class)->group(function () {
 
     Route::prefix('getcourse')->group(function () {
 
-        Route::get('/forms', 'forms');
+        Route::post('/forms', 'forms');
         Route::get('/orders', 'orders');
 
         Route::get('/webinars/hook', 'hook');
@@ -31,6 +31,6 @@ Route::controller(GetcourseController::class)->group(function () {
 
 Route::controller(BizonController::class)->group(function () {
 
-    Route::get('send', 'send');
-    Route::post('hook', 'hook');
+    Route::post('/bizon/send', 'send');
+    Route::post('/bizon/hook', 'hook');
 });

@@ -27,13 +27,14 @@ abstract class Leads
 
     public static function searchActiveLeads($contact, $pipeline_id): ?array
     {
-        if($contact->leads) {
+        $leads = $contact->leads->toArray();
 
-            foreach ($contact->leads as $lead) {
+        if($leads) {
 
-                if ($lead->status_id != 143 &&
-                    $lead->status_id != 142 &&
-                    $lead->pipeline_id == $pipeline_id) {
+            foreach ($leads as $lead) {
+
+                if ($lead['status_id'] != 143 &&
+                    $lead['status_id'] != 142) {
 
                     $array_leads[] = $lead;
                 }
@@ -48,10 +49,9 @@ abstract class Leads
             ->leads()
             ->create();
 
-        $lead->name = 'Новый посетитель Вебинара';
-
-        $lead->status_id = $values['status_id'];
-        $lead->responsible_user_id = $values['response_user_id'];
+        $lead->status_id = $values['status_id'] ?? null;
+        $lead->name      = $values['name'] ?? 'Новая сделка';
+        $lead->responsible_user_id = $values['responsible_user_id'] ?? null;
 
         $lead->contacts_id = $contact->id;
         $lead->save();

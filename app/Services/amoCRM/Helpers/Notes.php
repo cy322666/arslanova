@@ -15,7 +15,7 @@ class Notes
             ' - Имя : ' . $viewer->name,
             ' - Телефон : ' . $viewer->phone,
             ' - Почта : ' . $viewer->email,
-            ' - Присутствовал : ' . $viewer->time.' мин',
+            ' - Присутствовал : ~' . $viewer->time.' мин',
         ];
 
         return implode("\n", $array);
@@ -48,8 +48,8 @@ class Notes
             ' - Откуда : ' . $viewer->region,
             ' - Страна : ' . $viewer->country,
             ' - Присутствовал : ' . $viewer->time.' мин',
-            ' - Когда зашел : ' . date('Y-m-d H:i:s', $viewer->view),
-            ' - Когда вышел : ' . date('Y-m-d H:i:s',$viewer->viewTill),
+            ' - Когда зашел : ' . date('Y-m-d H:i:s', (int)$viewer->view),
+            ' - Когда вышел : ' . date('Y-m-d H:i:s', (int)$viewer->viewTill),
             ' - Откуда перешел : ' . $viewer->referer,
             ' - Устройство : ' . $viewer->useragent,
             ' - IP : ' . $viewer->ip,
@@ -58,6 +58,16 @@ class Notes
             ' - Кликал по кнопке : ' . $viewer->clickFile,
         ];
 
+        if($viewer->commentaries !== null) {
+
+            $array = array_merge($array, array_merge([
+                ' '.
+                'Комментарии : ',
+                '--------------------------',
+                ], json_decode($viewer->commentaries, true))
+            );
+
+        }
         return implode("\n", $array);
     }
 }

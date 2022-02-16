@@ -35,12 +35,12 @@ abstract class Contacts
 
         $contact->name = $values['name'] ?? 'Неизвестно';
 
-        $contact->responsible_user_id = $values['responsible_user_id'];
+        $contact->responsible_user_id = $values['responsible_user_id'] ?? null;
 
-        if($values['phone'])
+        if(isset($values['phone']))
             $contact->cf('Телефон')->setValue($values['phone']);
 
-        if($values['email'])
+        if(isset($values['email']))
             $contact->cf('Email')->setValue($values['email']);
 
         $contact->save();

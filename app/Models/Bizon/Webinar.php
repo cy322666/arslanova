@@ -19,4 +19,9 @@ class Webinar extends Model
         'len',
         'account_id'
     ];
+
+    public function viewers()
+    {
+        return $this->hasMany(\App\Models\Bizon\Viewer::class, 'webinar_id', 'id');
+    }
 }

@@ -33,6 +33,11 @@ class BizonController extends Controller
             'len'       => $request->input('len'),  //длительность вебинара
         ]);
 
+        if ($webinar->stat == 0) {
+            $webinar->status = 'ok';
+            $webinar->save();
+        }
+
         $bizon = (new Client())
             ->setLogin(env('BIZON_LOGIN'))
             ->setPassword(env('BIZON_PASSWORD'))
@@ -50,7 +55,8 @@ class BizonController extends Controller
 
         foreach ($report['usersMeta'] as $user_key => $user_array) {
 
-            $webinar->viewers()->create([
+            Viewer::create([
+                'webinar_id' => $webinar->id,
                 'chatUserId' => $user_array['chatUserId'],
                 'phone'      => $user_array['phone'],
                 'webinarId'  => $user_array['webinarId'],
@@ -65,7 +71,7 @@ class BizonController extends Controller
                 'useragent'  => $user_array['useragent'],
                 'created'    => $user_array['created'],
                 'playVideo'  => $user_array['playVideo'],
-                'finished'    => $user_array['finished'] ?? null,
+              //  'finished'    => $user_array['finished'] ?? null,
                 'messages_num' => $user_array['messages_num'],
                 'cv'         => $user_array['cv'],
                 'cu1'        => $user_array['cu1'],
@@ -100,7 +106,7 @@ class BizonController extends Controller
     public function send()
     {
         $client = (new \App\Services\amoCRM\Client())->init([
-            'domain'        => env('AMOCRM_SUBDOMAIN'),
+            'subdomain'     => env('AMOCRM_SUBDOMAIN'),
             'client_id'     => env('AMOCRM_CLIENT_ID'),
             'client_secret' => env('AMOCRM_CLIENT_SECRET'),
             'redirect_uri'  => env('AMOCRM_REDIRECT_URI'),
@@ -111,7 +117,7 @@ class BizonController extends Controller
 
         if($webinar) {
 
-            foreach ($webinar->viewers as $viewer) {
+            foreach ($webinar->viewers()->where('status', 'wait')->get() as $viewer) {
 
                 try {
 
@@ -121,6 +127,7 @@ class BizonController extends Controller
                         $contact = Contacts::create($client, [
                             'phone' => $viewer->phone,
                             'email' => $viewer->email,
+                            'name'  => $viewer->username
                         ]);
 
                     $leads = Leads::searchActiveLeads($contact, $client);
@@ -131,25 +138,36 @@ class BizonController extends Controller
 
                         $lead = Leads::create($contact, $client, [
                             'status_id' => $status_id,
+                            'name'      => 'Новая сделка с вебинара'
                         ]);
                     } else {
 
                         foreach ($leads as $lead) {
                             //45360766 заявка на подарок
                             //45360769 заявка на курс
-                            if ($lead->status_id != 45360766 ||
-                                $lead->status_id != 45360769) {
+                            if ($lead['status_id'] == 45360766 ||
+                                $lead['status_id'] == 45360769) {
 
-                                $lead = $client->service->leads()->find($lead->id);
+                                $lead = $client->service->leads()->find($lead['id']);
+
+                                break;
+
+                            } else {
+
+                                $lead = $client->service->leads()->find($lead['id']);
                                 $lead->status_id = $status_id;
                                 $lead->save();
 
                                 break;
                             }
                         }
-                        $lead = Leads::create($contact, $client, [
-                            'status_id' => $status_id,
-                        ]);
+                        if(empty($lead)) {
+
+                            $lead = Leads::create($contact, $client, [
+                                'status_id' => $status_id,
+                                'name'      => 'Новая сделка с вебинара'
+                            ]);
+                        }
                     }
 
                     $lead->attachTags([\App\Models\Getcourse\Viewer::getTag($viewer->time), 'живойвеб']);
@@ -166,7 +184,7 @@ class BizonController extends Controller
                     $viewer->contact_id = $contact->id;
                     $viewer->status = 'ok';
                     $viewer->save();
-
+dd('end');
                 } catch (Exception $exception) {
 
                     $viewer->status = $exception->getMessage();

@@ -28,16 +28,16 @@ class GetcourseController extends Controller
             'name'  => $request->input('name'),
             'email' => $request->input('email'),
             'phone' => $request->input('phone'),
-            'state' => $request->input('state'),
+            'state' => $request->input('state').'-00',
         ]);
 
         try {
             $client = (new \App\Services\amoCRM\Client())->init([
-                'domain'        => env('AMOCRM_SUBDOMAIN'),
+                'subdomain'     => env('AMOCRM_SUBDOMAIN'),
                 'client_id'     => env('AMOCRM_CLIENT_ID'),
                 'client_secret' => env('AMOCRM_CLIENT_SECRET'),
                 'redirect_uri'  => env('AMOCRM_REDIRECT_URI'),
-                'code'          => env('AMOCRM_REDIRECT_CODE'),
+                'code'          => env('AMOCRM_CODE'),
             ]);
 
             $status_id = match ($user->state) {
@@ -52,6 +52,7 @@ class GetcourseController extends Controller
                 $contact = Contacts::create($client, [
                     'phone' => $user->phone,
                     'email' => $user->email,
+                    'name'  => $user->name,
                 ]);
 
             $leads = Leads::searchActiveLeads($contact, $client);
@@ -60,25 +61,36 @@ class GetcourseController extends Controller
 
                 $lead = Leads::create($contact, $client, [
                     'status_id' => $status_id,
+                    'name'      => 'Новая регистрация на вебинар',
                 ]);
             } else {
 
                 foreach ($leads as $lead) {
                     //45360766 заявка на подарок
                     //45360769 заявка на курс
-                    if ($lead->status_id != 45360766 ||
-                        $lead->status_id != 45360769) {
+                    if ($lead['status_id'] == 45360766 ||
+                        $lead['status_id'] == 45360769) {
 
-                        $lead = $client->service->leads()->find($lead->id);
+                        $lead = $client->service->leads()->find($lead['id']);
+
+                        break;
+
+                    } else {
+
+                        $lead = $client->service->leads()->find($lead['id']);
                         $lead->status_id = $status_id;
                         $lead->save();
 
                         break;
                     }
                 }
-                $lead = Leads::create($contact, $client, [
-                    'status_id' => $status_id,
-                ]);
+                if(empty($lead)) {
+
+                    $lead = Leads::create($contact, $client, [
+                        'status_id' => $status_id,
+                        'name'      => 'Новая регистрация на вебинар'
+                    ]);
+                }
             }
 
             $lead->attachTags([$user->state]);
@@ -92,7 +104,8 @@ class GetcourseController extends Controller
             $note->element_id = $lead->id;
             $note->save();
 
-            $user->lead_id = $lead->id;
+            $user->lead_id    = $lead->id;
+            $user->status_id  = $lead->status_id;
             $user->contact_id = $contact->id;
             $user->status = 'ok';
             $user->save();
@@ -110,6 +123,7 @@ class GetcourseController extends Controller
         Log::info(__METHOD__, $request->toArray());
 
         $viewer = Viewer::where('phone', $request->input('phone'))
+            ->where('status', 'wait')
             ->where('webinar_date', Carbon::now()->format('Y-m-d'))
             ->first();
 
@@ -131,15 +145,16 @@ class GetcourseController extends Controller
     //крон 1 раз в 30 мин
     public function send()
     {
-        $webinar = Viewer::where('webinar_date', Carbon::now()->format('Y-m-d'))
+        $webinar = Viewer::query()
+            ->where('webinar_date', Carbon::now()->format('Y-m-d'))
             ->where('status', '!=', 'ok')
-            ->where('created_at', '<', Carbon::now()->subHour()->format('Y-m-d H:i:s'))
+            ->where('created_at', '<', Carbon::now()->timezone('Europe/Moscow')->subMinutes(90)->format('Y-m-d H:i:s'))
             ->first();
 
         if($webinar) {
 
             $client = (new \App\Services\amoCRM\Client())->init([
-                'domain'        => env('AMOCRM_SUBDOMAIN'),
+                'subdomain'     => env('AMOCRM_SUBDOMAIN'),
                 'client_id'     => env('AMOCRM_CLIENT_ID'),
                 'client_secret' => env('AMOCRM_CLIENT_SECRET'),
                 'redirect_uri'  => env('AMOCRM_REDIRECT_URI'),
@@ -149,7 +164,7 @@ class GetcourseController extends Controller
             $viewers = Viewer::query()
                 ->where('webinar_date', Carbon::now()->format('Y-m-d'))
                 ->where('status', '!=', 'ok')
-                ->limit(30)
+                ->limit(25)
                 ->get();
 
             foreach ($viewers as $viewer) {
@@ -174,22 +189,35 @@ class GetcourseController extends Controller
                         ]);
                     } else {
 
+
                         foreach ($leads as $lead) {
                             //45360766 заявка на подарок
                             //45360769 заявка на курс
-                            if ($lead->status_id != 45360766 ||
-                                $lead->status_id != 45360769) {
+                            if ($lead['status_id'] == 45360766 ||
+                                $lead['status_id'] == 45360769) {
 
-                                $lead = $client->service->leads()->find($lead->id);
+                                $lead = $client->service->leads()->find($lead['id']);
+
+                                break;
+                            }
+
+                            if ($lead['status_id'] != 45360766 ||
+                                $lead['status_id'] != 45360769) {
+
+                                $lead = $client->service->leads()->find($lead['id']);
                                 $lead->status_id = $status_id;
                                 $lead->save();
 
                                 break;
                             }
                         }
-                        $lead = Leads::create($contact, $client, [
-                            'status_id' => $status_id,
-                        ]);
+                        if(empty($lead)) {
+
+                            $lead = Leads::create($contact, $client, [
+                                'status_id' => $status_id,
+                                'name'      => 'Новый посетитель автовебинара'
+                            ]);
+                        }
                     }
 
                     $lead->attachTags([Viewer::getTag($viewer->time), 'автовеб']);
